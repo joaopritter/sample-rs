@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::Device;
+use cpal::traits::{DeviceTrait, StreamTrait};
 use slab::Slab;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use triple_buffer::Input;
@@ -19,15 +20,12 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn start() -> Self {
+    pub fn start(device: Device) -> Self {
         let _span = info_span!("engine_start").entered();
 
         info!("Starting engine");
         let (mut audio_router, channel_tx) = AudioRouter::new();
         let (mut pad_manager, pad_tx) = PadManager::new();
-
-        let host = cpal::default_host();
-        let device = host.default_output_device().expect("No device");
 
         let config = device.default_output_config().unwrap();
         info!(

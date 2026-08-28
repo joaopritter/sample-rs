@@ -7,6 +7,7 @@ mod router;
 use std::io;
 use std::sync::Arc;
 
+use cpal::traits::HostTrait;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -21,7 +22,9 @@ pub fn main() {
         .init();
     info!("Main thread starting up");
 
-    let mut engine = Engine::start();
+    let host = cpal::default_host();
+    let device = host.default_output_device().expect("No device");
+    let mut engine = Engine::start(device);
 
     let decoded_file = decode_file("assets/clap.wav").unwrap();
     println!("Decoded file: {:?}", decoded_file);
@@ -30,7 +33,6 @@ pub fn main() {
     let pad_id = engine.add_pad();
     let channel_id = engine.add_channel();
     engine.route_pad_to_channel(pad_id, channel_id);
-
     engine.load_audio(pad_id, Some(clap));
 
     println!("\nType '0' and press Enter to play Pad 0.");
