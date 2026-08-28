@@ -1,0 +1,15 @@
+[package]
+name = "sample-rs-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Backend engine for audio sample processing."
+
+[dependencies]
+cpal = "0.18.2"
+crossbeam-channel = "0.5.16"
+ringbuf = "0.5.1"
+slab = "0.4.12"
+symphonia = { version = "0.6.1", features = ["all"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"]}
+triple_buffer = "9.0.0"

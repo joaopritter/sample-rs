@@ -22,7 +22,10 @@ pub fn main() {
     info!("Main thread starting up");
 
     let mut engine = Engine::start();
-    let clap = Arc::new(decode_file("assets/clap.wav").unwrap());
+
+    let decoded_file = decode_file("assets/clap.wav").unwrap();
+    println!("Decoded file: {:?}", decoded_file);
+    let clap = Arc::new(decoded_file);
 
     let pad_id = engine.add_pad();
     let channel_id = engine.add_channel();
