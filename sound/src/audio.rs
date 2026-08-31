@@ -19,6 +19,9 @@ pub struct Audio {
     pub channels: u16,
 }
 
+// TODO: Make a trait to used as "SoundSource", so both memory loaded audio
+// and real time calculated waves can be used as Audio by the engine.
+
 pub fn decode_file(path: &str) -> Result<Audio, Box<dyn error::Error>> {
     let src = File::open(path).expect("Failed to open audio file. Does it exist?");
     let mss = MediaSourceStream::new(Box::new(src), Default::default());

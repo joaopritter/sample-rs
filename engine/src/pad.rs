@@ -2,11 +2,10 @@ use ringbuf::{
     HeapCons, HeapProd, HeapRb,
     traits::{Observer, Producer, Split},
 };
+use sample_rs_sound::Audio;
 use tracing::trace;
 use std::sync::Arc;
 use triple_buffer::{Input, Output, TripleBuffer};
-
-use crate::audio::Audio;
 
 struct Voice {
     index: usize,

@@ -1,3 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["engine"]
+members = ["engine", "sound", "tui"]
+
+[workspace.package]
+version = "0.0.1"
+authors = ["jpritter"]
+description = "Sample processing written in Rust"
+
+[workspace.dependencies]
+cpal = "0.18.2"
+tracing = "0.1.44"

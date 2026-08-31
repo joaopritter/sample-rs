@@ -1,18 +1,12 @@
-mod audio;
-mod channel;
-mod engine;
-mod pad;
-mod router;
-
 use std::io;
 use std::sync::Arc;
 
 use cpal::traits::HostTrait;
+use sample_rs_engine::Engine;
+use sample_rs_sound::decode_file;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::audio::decode_file;
-use crate::engine::Engine;
 
 pub fn main() {
     tracing_subscriber::fmt()

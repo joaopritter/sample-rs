@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use cpal::Device;
 use cpal::traits::{DeviceTrait, StreamTrait};
+use sample_rs_sound::Audio;
 use slab::Slab;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use triple_buffer::Input;
 
-use crate::audio::Audio;
 use crate::channel::{Channel, ChannelProperties};
 use crate::pad::{PadEngine, PadManager, PadManagerCommand, PadProperties};
 use crate::router::{AudioRouter, AudioRouterCommand};

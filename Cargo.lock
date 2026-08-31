@@ -659,11 +659,28 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "ringbuf",
+ "sample-rs-sound",
  "slab",
+ "tracing",
+ "triple_buffer",
+]
+
+[[package]]
+name = "sample-rs-sound"
+version = "0.1.0"
+dependencies = [
  "symphonia",
+]
+
+[[package]]
+name = "sample-rs-tui"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "sample-rs-engine",
+ "sample-rs-sound",
  "tracing",
  "tracing-subscriber",
- "triple_buffer",
 ]
 
 [[package]]

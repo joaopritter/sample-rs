@@ -1,0 +1,12 @@
+[package]
+name = "sample-rs-tui"
+version = "0.1.0"
+edition = "2024"
+description = "A Text UI for sample-rs."
+
+[dependencies]
+sample-rs-sound = { path = "../sound/" }
+sample-rs-engine = { path = "../engine/" }
+cpal.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"]}
