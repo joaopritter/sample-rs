@@ -41,25 +41,30 @@ pub fn main() -> io::Result<()> {
     enable_raw_mode()?;
 
     loop {
-        if let Ok(Event::Key(key_event)) = event::read() {
-            if key_event.kind == KeyEventKind::Press {
-                match key_event.code {
-                    KeyCode::Char('a') => {
-                        engine.hit_pad(pad_id);
-                    }
-                    KeyCode::Char('9') => {
-                        engine.update_pad(pad_id, |props| {
-                            props.lower_volume();
-                        });
-                    }
-                    KeyCode::Char('q') => {
-                        break;
-                    }
-                    KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                        break;
-                    }
-                    _ => {}
+        if let Ok(Event::Key(key_event)) = event::read()
+            && key_event.kind == KeyEventKind::Press
+        {
+            match key_event.code {
+                KeyCode::Char('a') => {
+                    engine.hit_pad(pad_id);
                 }
+                KeyCode::Char('o') => {
+                    engine.update_pad(pad_id, |props| {
+                        props.offset_volume(-0.1);
+                    });
+                }
+                KeyCode::Char('p') => {
+                    engine.update_pad(pad_id, |props| {
+                        props.offset_volume(0.1);
+                    });
+                }
+                KeyCode::Char('q') => {
+                    break;
+                }
+                KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break;
+                }
+                _ => {}
             }
         }
     }

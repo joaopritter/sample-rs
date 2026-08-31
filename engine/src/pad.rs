@@ -37,9 +37,9 @@ impl PadProperties {
     }
 
     #[instrument(skip_all, fields(pad_id = self.id()))]
-    pub fn lower_volume(&mut self) {
-        self.volume -= 0.1;
-        debug!("Volume lowered to: {}", self.volume);
+    pub fn offset_volume(&mut self, amount: f32) {
+        self.volume = (self.volume + amount).clamp(0.0, 1.0);
+        debug!("Volume changed to: {}", self.volume);
     }
 }
 
