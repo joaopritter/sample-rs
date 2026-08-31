@@ -2,16 +2,19 @@ use std::io;
 use std::sync::Arc;
 
 use cpal::traits::HostTrait;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
 use sample_rs_engine::Engine;
 use sample_rs_sound::decode_file;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-
-pub fn main() {
+pub fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sample_rs=trace")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sample_rs=debug")),
         )
         .init();
     info!("Main thread starting up");
@@ -29,26 +32,37 @@ pub fn main() {
     engine.route_pad_to_channel(pad_id, channel_id);
     engine.load_audio(pad_id, Some(clap));
 
-    println!("\nType '0' and press Enter to play Pad 0.");
-    println!("Type 'q' and press Enter to quit.\n");
+    println!("\nPress 'a' to play Pad {}.", pad_id);
+    println!("Press 'q' or Ctrl+C to quit.\n");
 
-    let stdin = io::stdin();
-    let mut input = String::new();
+    enable_raw_mode()?;
 
     loop {
-        input.clear();
-
-        if stdin.read_line(&mut input).is_ok() {
-            match input.trim() {
-                "0" => {
-                    engine.hit_pad(pad_id);
+        if let Ok(Event::Key(key_event)) = event::read() {
+            if key_event.kind == KeyEventKind::Press {
+                match key_event.code {
+                    KeyCode::Char('a') => {
+                        engine.hit_pad(pad_id);
+                    }
+                    KeyCode::Char('9') => {
+                        engine.update_pad(pad_id, |props| {
+                            props.lower_volume();
+                        });
+                    }
+                    KeyCode::Char('q') => {
+                        break;
+                    }
+                    KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        break;
+                    }
+                    _ => {}
                 }
-                "q" => {
-                    println!("Shutting down...");
-                    break;
-                }
-                _ => {}
             }
         }
     }
+
+    disable_raw_mode()?;
+
+    println!("Shutting down...");
+    Ok(())
 }

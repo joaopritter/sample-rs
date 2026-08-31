@@ -13,7 +13,7 @@ use crate::router::{AudioRouter, AudioRouterCommand};
 
 pub struct Engine {
     _stream: cpal::Stream,
-    pad_rack: Slab<Input<PadProperties>>,
+    pad_rack: Slab<(PadProperties, Input<PadProperties>)>,
     channel_rack: Slab<Input<ChannelProperties>>,
     channel_tx: crossbeam_channel::Sender<AudioRouterCommand>,
     pad_tx: crossbeam_channel::Sender<PadManagerCommand>,
@@ -76,8 +76,10 @@ impl Engine {
         let key = entry.key();
         info!("Attempting to create pad with id: {}", key);
 
-        let (pad, pad_out, pad_properties) = PadEngine::new(key);
-        entry.insert(pad_properties);
+        let master_properties = PadProperties::new(key);
+        let (pad, pad_out, pad_buffer_in) = PadEngine::new(key);
+
+        entry.insert((master_properties, pad_buffer_in));
         self.channel_tx
             .send(AudioRouterCommand::ConnectPad((key, pad_out)));
         self.pad_tx.send(PadManagerCommand::AddPad(pad));
@@ -92,27 +94,33 @@ impl Engine {
         self.pad_tx.send(PadManagerCommand::Hit(pad_id));
     }
 
+    #[instrument(skip(self, update_fn))]
+    pub fn update_pad<F>(&mut self, pad_id: usize, mut update_fn: F)
+    where
+        F: FnMut(&mut PadProperties),
+    {
+        if let Some((master, buffer_in)) = self.pad_rack.get_mut(pad_id) {
+            update_fn(master);
+            *buffer_in.input_buffer_mut() = master.clone();
+            buffer_in.publish();
+        } else {
+            warn!("Couldn't find pad with id '{}' to update.", pad_id);
+        }
+    }
+
     #[instrument(skip(self))]
     pub fn route_pad_to_channel(&mut self, pad_id: usize, channel_id: usize) {
-        if let Some(pad) = &mut self.pad_rack.get_mut(pad_id) {
+        self.update_pad(pad_id, |props| {
             debug!("Routing pad '{}' to channel '{}'.", pad_id, channel_id);
-            pad.input_buffer_mut().set_target_channel(channel_id);
-            pad.publish();
-        }
+            props.set_target_channel(channel_id);
+        });
     }
 
     #[instrument(skip(self, audio))]
     pub fn load_audio(&mut self, pad_id: usize, audio: Option<Arc<Audio>>) {
-        match &mut self.pad_rack.get_mut(pad_id) {
-            Some(pad) => {
-                info!("Loading audio to pad '{}'.", pad_id);
-                let input_buffer = pad.input_buffer_mut();
-                input_buffer.set_audio(audio);
-                pad.publish();
-            }
-            None => {
-                warn!("Couldn't find pad with id '{}'.", pad_id);
-            }
-        }
+        info!("Loading audio to pad '{}'.", pad_id);
+        self.update_pad(pad_id, |props| {
+            props.set_audio(audio.clone());
+        });
     }
 }

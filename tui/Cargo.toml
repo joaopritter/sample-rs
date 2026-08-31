@@ -10,3 +10,4 @@ sample-rs-engine = { path = "../engine/" }
 cpal.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"]}
+crossterm = "0.29.0"

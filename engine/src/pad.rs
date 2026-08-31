@@ -3,8 +3,8 @@ use ringbuf::{
     traits::{Observer, Producer, Split},
 };
 use sample_rs_sound::Audio;
-use tracing::{info, instrument, trace};
 use std::sync::Arc;
+use tracing::{debug, instrument, trace};
 use triple_buffer::{Input, Output, TripleBuffer};
 
 struct Voice {
@@ -34,6 +34,12 @@ impl PadProperties {
 
     pub fn set_audio(&mut self, audio: Option<Arc<Audio>>) {
         self.p_audio = audio;
+    }
+
+    #[instrument(skip_all, fields(pad_id = self.id()))]
+    pub fn lower_volume(&mut self) {
+        self.volume -= 0.1;
+        debug!("Volume lowered to: {}", self.volume);
     }
 }
 
@@ -113,18 +119,18 @@ impl PadEngine {
 
         if self.voices.is_empty() {
             trace!("No voices to process...");
-            return false
+            return false;
         }
 
         let audio = match properties.p_audio.as_ref() {
             Some(a) => {
                 trace!("Has audio loaded...");
                 a
-            },
+            }
             None => {
                 trace!("No audio loaded, exiting.");
-                return false
-            },
+                return false;
+            }
         };
 
         let available = self.producer.vacant_len();
@@ -186,29 +192,39 @@ impl PadManager {
 
     /// Returns which pads are currently playing and where to route them to.
     pub fn process(&mut self) -> impl Iterator<Item = (usize, usize)> {
-        if let Ok(cmd) = self.cmd_rx.try_recv() { match cmd {
-            PadManagerCommand::Hit(p_id) => {
-                trace!("Triggering {}", p_id);
-                for p in &mut self.pads {
-                    if p.id() == p_id {
-                        p.spawn_voice();
+        if let Ok(cmd) = self.cmd_rx.try_recv() {
+            match cmd {
+                PadManagerCommand::Hit(p_id) => {
+                    trace!("Triggering {}", p_id);
+                    for p in &mut self.pads {
+                        if p.id() == p_id {
+                            p.spawn_voice();
+                        }
                     }
                 }
+                PadManagerCommand::AddPad(pad_engine) => {
+                    trace!("Adding pad '{}' to pad manager.", pad_engine.id());
+                    self.pads.push(pad_engine);
+                }
             }
-            PadManagerCommand::AddPad(pad_engine) => {
-                trace!("Adding pad '{}' to pad manager.", pad_engine.id());
-                self.pads.push(pad_engine);
-            }
-        } }
+        }
 
         for p in &mut self.pads {
             p.process();
-            trace!("Pad '{}' has '{}' active voices.", p.id(), p.active_voices());
+            trace!(
+                "Pad '{}' has '{}' active voices.",
+                p.id(),
+                p.active_voices()
+            );
         }
 
         self.pads.iter().filter_map(|pad| {
             if pad.has_active_voices() {
-                trace!("Routing pad '{}' to channel '{}'.", pad.id(), pad.target_channel());
+                trace!(
+                    "Routing pad '{}' to channel '{}'.",
+                    pad.id(),
+                    pad.target_channel()
+                );
                 Some((pad.id(), pad.target_channel()))
             } else {
                 None
