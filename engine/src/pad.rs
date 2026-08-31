@@ -3,7 +3,7 @@ use ringbuf::{
     traits::{Observer, Producer, Split},
 };
 use sample_rs_sound::Audio;
-use tracing::trace;
+use tracing::{info, instrument, trace};
 use std::sync::Arc;
 use triple_buffer::{Input, Output, TripleBuffer};
 
@@ -98,31 +98,44 @@ impl PadEngine {
         }
     }
 
-    pub fn has_active_voices(&self) -> bool {
-        self.voices.is_empty()
+    pub fn active_voices(&self) -> usize {
+        self.voices.len()
     }
 
+    pub fn has_active_voices(&self) -> bool {
+        !self.voices.is_empty()
+    }
+
+    #[instrument(skip_all, fields(pad_id = self.id()))]
     pub fn process(&mut self) -> bool {
         self.properties.update();
         let properties = self.properties.output_buffer();
 
         if self.voices.is_empty() {
+            trace!("No voices to process...");
             return false
         }
 
         let audio = match properties.p_audio.as_ref() {
-            Some(a) => a,
+            Some(a) => {
+                trace!("Has audio loaded...");
+                a
+            },
             None => {
+                trace!("No audio loaded, exiting.");
                 return false
             },
         };
 
         let available = self.producer.vacant_len();
         if available == 0 {
+            trace!("Producer has no vacant len in buffer, exiting.");
             return false;
         }
+        trace!("Producer has {} frames free in buffer.", available);
 
         let chunk_size = available.min(Self::MAX_CHUNK_SIZE);
+        trace!("Rendering {} frames.", chunk_size);
         let buffer = &mut self.mix_buffer[..chunk_size];
         buffer.fill(0.0);
 
@@ -190,10 +203,12 @@ impl PadManager {
 
         for p in &mut self.pads {
             p.process();
+            trace!("Pad '{}' has '{}' active voices.", p.id(), p.active_voices());
         }
 
         self.pads.iter().filter_map(|pad| {
             if pad.has_active_voices() {
+                trace!("Routing pad '{}' to channel '{}'.", pad.id(), pad.target_channel());
                 Some((pad.id(), pad.target_channel()))
             } else {
                 None
