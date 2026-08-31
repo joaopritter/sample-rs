@@ -29,8 +29,11 @@ pub fn main() -> io::Result<()> {
 
     let pad_id = engine.add_pad();
     let channel_id = engine.add_channel();
-    engine.route_pad_to_channel(pad_id, channel_id);
-    engine.load_audio(pad_id, Some(clap));
+
+    engine.update_pad(pad_id, |props| {
+        props.set_target_channel(channel_id);
+        props.set_audio(Some(clap.clone()));
+    });
 
     println!("\nPress 'a' to play Pad {}.", pad_id);
     println!("Press 'q' or Ctrl+C to quit.\n");

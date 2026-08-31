@@ -107,20 +107,4 @@ impl Engine {
             warn!("Couldn't find pad with id '{}' to update.", pad_id);
         }
     }
-
-    #[instrument(skip(self))]
-    pub fn route_pad_to_channel(&mut self, pad_id: usize, channel_id: usize) {
-        self.update_pad(pad_id, |props| {
-            debug!("Routing pad '{}' to channel '{}'.", pad_id, channel_id);
-            props.set_target_channel(channel_id);
-        });
-    }
-
-    #[instrument(skip(self, audio))]
-    pub fn load_audio(&mut self, pad_id: usize, audio: Option<Arc<Audio>>) {
-        info!("Loading audio to pad '{}'.", pad_id);
-        self.update_pad(pad_id, |props| {
-            props.set_audio(audio.clone());
-        });
-    }
 }
