@@ -14,6 +14,7 @@ pub enum AudioRouterCommand {
 }
 
 pub struct AudioRouter {
+    /// Pad.id and consumer
     pads: Vec<(usize, HeapCons<f32>)>,
     channels: Vec<Channel>,
     /// Pre-allocated memory forwarded to each channel to use
@@ -50,8 +51,8 @@ impl AudioRouter {
                 trace!("Pushing channel '{}' to vector...", channel.id());
                 self.channels.push(channel);
             }
-            AudioRouterCommand::DisconnectPad(_) => todo!(),
-            AudioRouterCommand::RemoveChannel(_) => todo!(),
+            AudioRouterCommand::DisconnectPad(pad_id) => todo!(),
+            AudioRouterCommand::RemoveChannel(channel_id) => todo!(),
         }
     }
 

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use cpal::{
-    Device, StreamConfig,
     traits::{DeviceTrait, StreamTrait},
 };
 use ringbuf::traits::Producer;
@@ -15,27 +14,84 @@ use crate::{
     router::{AudioRouter, AudioRouterCommand},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum BufferSize {
+    S128 = 128,
+    S256 = 256,
+    S512 = 512,
+    S1024 = 1024,
+    S2048 = 2048,
+    S4096 = 4096,
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SampleRate {
+    R44_1kHz = 44_100,
+    R48kHz = 48_000,
+}
+
+pub struct EngineSettings {
+    device: cpal::Device,
+    buffer_size: BufferSize,
+    sample_rate: SampleRate,
+}
+
+impl EngineSettings {
+    pub fn new(device: cpal::Device, buffer_size: BufferSize, sample_rate: SampleRate) -> Self {
+        Self { device, buffer_size, sample_rate }
+    }
+
+    pub fn buffer_size(&self) -> u32 {
+        self.buffer_size as u32
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate as u32
+    }
+}
+
 pub struct Engine {
     _stream: cpal::Stream,
     pad_rack: Slab<(PadProperties, triple_buffer::Input<PadProperties>)>,
     channel_rack: Slab<triple_buffer::Input<ChannelProperties>>,
     channel_tx: ringbuf::HeapProd<AudioRouterCommand>,
     pad_tx: ringbuf::HeapProd<PadManagerCommand>,
-    stream_config: StreamConfig,
+    settings: EngineSettings,
     audios: Slab<Arc<Audio>>,
 }
 
 impl Engine {
-    pub fn start(device: Device) -> Self {
+    pub fn start(settings: EngineSettings) -> Self {
         let _span = info_span!("engine_start").entered();
 
         info!("Starting engine");
         let (mut audio_router, channel_tx) = AudioRouter::new();
         let (mut pad_manager, pad_tx) = PadManager::new();
 
-        let stream_config = device.default_output_config().unwrap().config();
+        let device = settings.device.clone();
+        let desired_buffer_size = settings.buffer_size();
+        let supported_config = device.default_output_config().unwrap();
+
+        // TODO: Use this buffer size to determine memory prealloc in routers.
+        match supported_config.buffer_size() {
+            cpal::SupportedBufferSize::Range { min, max } => {
+                if *min > desired_buffer_size || *max < desired_buffer_size {
+                    panic!()
+                }
+            }
+            cpal::SupportedBufferSize::Unknown => todo!(),
+        }
+
+        let mut stream_config = supported_config.config();
+        stream_config.buffer_size = cpal::BufferSize::Fixed(desired_buffer_size);
+        stream_config.sample_rate = settings.sample_rate();
+
         info!(
-            sample_rate = stream_config.sample_rate,
+            sample_rate = settings.sample_rate(),
+            buffer_size = settings.buffer_size(),
             "Configured audio device"
         );
         let channels = stream_config.channels;
@@ -59,14 +115,14 @@ impl Engine {
             channel_rack: Slab::new(),
             channel_tx,
             pad_tx,
-            stream_config,
             audios: Slab::new(),
+            settings,
         }
     }
 
     pub fn load_file(&mut self, file: &std::path::Path) -> usize {
         let audio = decode_file(file).unwrap();
-        let resampled = audio.resample(self.stream_config.sample_rate);
+        let resampled = audio.resample(self.settings.sample_rate());
         self.audios.insert(Arc::new(resampled))
     }
 
