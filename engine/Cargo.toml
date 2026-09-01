@@ -9,7 +9,6 @@ cpal.workspace = true
 tracing.workspace = true
 audioadapter.workspace = true
 audioadapter-buffers.workspace = true
-crossbeam-channel = "0.5.16"
 ringbuf = "0.5.1"
 slab = "0.4.12"
 triple_buffer = "9.0.0"

@@ -4,9 +4,9 @@ use cpal::{
     Device, StreamConfig,
     traits::{DeviceTrait, StreamTrait},
 };
+use ringbuf::traits::Producer;
 use slab::Slab;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use triple_buffer::Input;
 
 use crate::{
     audio::{Audio, decode_file},
@@ -17,10 +17,10 @@ use crate::{
 
 pub struct Engine {
     _stream: cpal::Stream,
-    pad_rack: Slab<(PadProperties, Input<PadProperties>)>,
-    channel_rack: Slab<Input<ChannelProperties>>,
-    channel_tx: crossbeam_channel::Sender<AudioRouterCommand>,
-    pad_tx: crossbeam_channel::Sender<PadManagerCommand>,
+    pad_rack: Slab<(PadProperties, triple_buffer::Input<PadProperties>)>,
+    channel_rack: Slab<triple_buffer::Input<ChannelProperties>>,
+    channel_tx: ringbuf::HeapProd<AudioRouterCommand>,
+    pad_tx: ringbuf::HeapProd<PadManagerCommand>,
     stream_config: StreamConfig,
     audios: Slab<Arc<Audio>>,
 }
@@ -84,7 +84,7 @@ impl Engine {
         let (channel, channel_properties) = Channel::new(key);
         entry.insert(channel_properties);
         self.channel_tx
-            .send(AudioRouterCommand::AddChannel(channel));
+            .try_push(AudioRouterCommand::AddChannel(channel));
 
         info!("Successfully created channel '{}'.", key);
         key
@@ -101,17 +101,17 @@ impl Engine {
 
         entry.insert((master_properties, pad_buffer_in));
         self.channel_tx
-            .send(AudioRouterCommand::ConnectPad((key, pad_out)));
-        self.pad_tx.send(PadManagerCommand::AddPad(pad));
+            .try_push(AudioRouterCommand::ConnectPad((key, pad_out)));
+        self.pad_tx.try_push(PadManagerCommand::AddPad(pad));
 
         info!("Successfully created pad '{}'.", key);
         key
     }
 
     #[instrument(skip(self))]
-    pub fn hit_pad(&self, pad_id: usize) {
+    pub fn hit_pad(&mut self, pad_id: usize) {
         debug!("Sending hit command to pad manager");
-        self.pad_tx.send(PadManagerCommand::Hit(pad_id));
+        self.pad_tx.try_push(PadManagerCommand::Hit(pad_id));
     }
 
     #[instrument(skip(self, update_fn))]

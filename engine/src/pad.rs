@@ -1,8 +1,7 @@
 use audioadapter::{Adapter, AdapterMut};
 use audioadapter_buffers::direct::InterleavedSlice;
 use ringbuf::{
-    HeapCons, HeapProd, HeapRb,
-    traits::{Observer, Producer, Split},
+    HeapCons, HeapProd, HeapRb, traits::{Consumer, Observer, Producer, Split},
 };
 use std::sync::Arc;
 use tracing::{debug, instrument, trace};
@@ -198,12 +197,12 @@ pub enum PadManagerCommand {
 
 pub struct PadManager {
     pads: Vec<PadEngine>,
-    cmd_rx: crossbeam_channel::Receiver<PadManagerCommand>,
+    cmd_rx: ringbuf::HeapCons<PadManagerCommand>,
 }
 
 impl PadManager {
-    pub fn new() -> (Self, crossbeam_channel::Sender<PadManagerCommand>) {
-        let (cmd_tx, cmd_rx) = crossbeam_channel::bounded::<PadManagerCommand>(100);
+    pub fn new() -> (Self, ringbuf::HeapProd<PadManagerCommand>) {
+        let (cmd_tx, cmd_rx) = ringbuf::HeapRb::<PadManagerCommand>::new(25).split();
         (
             Self {
                 pads: Vec::new(),
@@ -218,7 +217,7 @@ impl PadManager {
     /// allocation during audio rendering, everything should be pre allocated
     /// beforehand.
     pub fn process(&mut self, channels: usize) -> impl Iterator<Item = (usize, usize)> {
-        if let Ok(cmd) = self.cmd_rx.try_recv() {
+        while let Some(cmd) = self.cmd_rx.try_pop() {
             match cmd {
                 PadManagerCommand::Hit(p_id) => {
                     trace!("Triggering {}", p_id);

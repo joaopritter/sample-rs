@@ -21,9 +21,8 @@ pub fn main() -> io::Result<()> {
     let device = host.default_output_device().expect("No device");
     let mut engine = Engine::start(device);
 
-    let file = std::path::Path::new("assets/clap.wav");
-    let audio_id = engine.load_file(file);
-    let clap = engine.get_audio(audio_id);
+    let clap_id = engine.load_file(std::path::Path::new("assets/clap.wav"));
+    let clap = engine.get_audio(clap_id);
 
     let pad_id = engine.add_pad();
     let channel_id = engine.add_channel();
@@ -31,6 +30,18 @@ pub fn main() -> io::Result<()> {
     engine.update_pad(pad_id, |props| {
         props.set_target_channel(channel_id);
         props.set_audio(Some(clap.clone()));
+    });
+
+
+    let kick_id = engine.load_file(std::path::Path::new("assets/kick.wav"));
+    let kick = engine.get_audio(kick_id);
+
+    let second_pad_id = engine.add_pad();
+    let second_channel_id = engine.add_channel();
+
+    engine.update_pad(second_pad_id, |props| {
+        props.set_target_channel(second_channel_id);
+        props.set_audio(Some(kick.clone()));
     });
 
     println!("\nPress 'a' to play Pad {}.", pad_id);
@@ -45,6 +56,9 @@ pub fn main() -> io::Result<()> {
             match key_event.code {
                 KeyCode::Char('a') => {
                     engine.hit_pad(pad_id);
+                }
+                KeyCode::Char('s') => {
+                    engine.hit_pad(second_pad_id);
                 }
                 KeyCode::Char('o') => {
                     engine.update_pad(pad_id, |props| {

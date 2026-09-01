@@ -1,11 +1,16 @@
-use ringbuf::HeapCons;
+use ringbuf::{
+    HeapCons,
+    traits::{Consumer, Split},
+};
 use tracing::trace;
 
 use crate::channel::Channel;
 
 pub enum AudioRouterCommand {
     ConnectPad((usize, HeapCons<f32>)),
+    DisconnectPad(usize),
     AddChannel(Channel),
+    RemoveChannel(usize),
 }
 
 pub struct AudioRouter {
@@ -15,14 +20,14 @@ pub struct AudioRouter {
     /// during processing.
     prealloc_mix_buffer: Vec<f32>,
     prealloc_active_routings: Vec<(usize, usize)>,
-    cmd_rx: crossbeam_channel::Receiver<AudioRouterCommand>,
+    cmd_rx: ringbuf::HeapCons<AudioRouterCommand>,
 }
 
 impl AudioRouter {
     const MAX_CHUNK_SIZE: usize = 1024;
     const MAX_PADS: usize = 64;
-    pub fn new() -> (Self, crossbeam_channel::Sender<AudioRouterCommand>) {
-        let (cmd_tx, cmd_rx) = crossbeam_channel::bounded::<AudioRouterCommand>(100);
+    pub fn new() -> (Self, ringbuf::HeapProd<AudioRouterCommand>) {
+        let (cmd_tx, cmd_rx) = ringbuf::HeapRb::<AudioRouterCommand>::new(25).split();
         (
             Self {
                 pads: Vec::with_capacity(Self::MAX_PADS),
@@ -35,14 +40,19 @@ impl AudioRouter {
         )
     }
 
-    pub fn connect_pad(&mut self, pad: (usize, HeapCons<f32>)) {
-        trace!("Connecting pad '{}' to audio router.", pad.0);
-        self.pads.push(pad);
-    }
-
-    pub fn new_channel(&mut self, channel: Channel) {
-        trace!("Pushing channel '{}' to vector...", channel.id());
-        self.channels.push(channel);
+    fn execute_command(&mut self, cmd: AudioRouterCommand) {
+        match cmd {
+            AudioRouterCommand::ConnectPad(pad) => {
+                trace!("Connecting pad '{}' to audio router.", pad.0);
+                self.pads.push(pad);
+            }
+            AudioRouterCommand::AddChannel(channel) => {
+                trace!("Pushing channel '{}' to vector...", channel.id());
+                self.channels.push(channel);
+            }
+            AudioRouterCommand::DisconnectPad(_) => todo!(),
+            AudioRouterCommand::RemoveChannel(_) => todo!(),
+        }
     }
 
     /// Routes the buffer of each pad to its channel
@@ -51,11 +61,8 @@ impl AudioRouter {
         active_pads: impl Iterator<Item = (usize, usize)>,
         output: &mut [f32],
     ) {
-        while let Ok(cmd) = self.cmd_rx.try_recv() {
-            match cmd {
-                AudioRouterCommand::ConnectPad(pad) => self.connect_pad(pad),
-                AudioRouterCommand::AddChannel(channel) => self.new_channel(channel),
-            }
+        while let Some(cmd) = self.cmd_rx.try_pop() {
+            self.execute_command(cmd);
         }
 
         let frames = output.len();
