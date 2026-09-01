@@ -5,7 +5,6 @@ edition = "2024"
 description = "A Text UI for sample-rs."
 
 [dependencies]
-sample-rs-sound = { path = "../sound/" }
 sample-rs-engine = { path = "../engine/" }
 cpal.workspace = true
 tracing.workspace = true

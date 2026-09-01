@@ -6,9 +6,12 @@ description = "Backend engine for audio sample processing."
 
 [dependencies]
 cpal.workspace = true
+tracing.workspace = true
+audioadapter.workspace = true
+audioadapter-buffers.workspace = true
 crossbeam-channel = "0.5.16"
 ringbuf = "0.5.1"
 slab = "0.4.12"
-tracing.workspace = true
 triple_buffer = "9.0.0"
-sample-rs-sound = { path = "../sound/" }
+rubato = "5.0.0"
+symphonia = { version = "0.6.1", features = ["all"] }

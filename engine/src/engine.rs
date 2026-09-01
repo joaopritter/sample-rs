@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
-use cpal::Device;
-use cpal::traits::{DeviceTrait, StreamTrait};
-use sample_rs_sound::Audio;
+use cpal::{
+    Device, StreamConfig,
+    traits::{DeviceTrait, StreamTrait},
+};
 use slab::Slab;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use triple_buffer::Input;
 
-use crate::channel::{Channel, ChannelProperties};
-use crate::pad::{PadEngine, PadManager, PadManagerCommand, PadProperties};
-use crate::router::{AudioRouter, AudioRouterCommand};
+use crate::{
+    audio::{Audio, decode_file},
+    channel::{Channel, ChannelProperties},
+    pad::{PadEngine, PadManager, PadManagerCommand, PadProperties},
+    router::{AudioRouter, AudioRouterCommand},
+};
 
 pub struct Engine {
     _stream: cpal::Stream,
@@ -17,6 +21,8 @@ pub struct Engine {
     channel_rack: Slab<Input<ChannelProperties>>,
     channel_tx: crossbeam_channel::Sender<AudioRouterCommand>,
     pad_tx: crossbeam_channel::Sender<PadManagerCommand>,
+    stream_config: StreamConfig,
+    audios: Slab<Arc<Audio>>,
 }
 
 impl Engine {
@@ -27,17 +33,18 @@ impl Engine {
         let (mut audio_router, channel_tx) = AudioRouter::new();
         let (mut pad_manager, pad_tx) = PadManager::new();
 
-        let config = device.default_output_config().unwrap();
+        let stream_config = device.default_output_config().unwrap().config();
         info!(
-            sample_rate = config.sample_rate(),
+            sample_rate = stream_config.sample_rate,
             "Configured audio device"
         );
+        let channels = stream_config.channels;
 
         let stream = device
             .build_output_stream(
-                config.into(),
+                stream_config,
                 move |data: &mut [f32], _| {
-                    audio_router.process(pad_manager.process(), data);
+                    audio_router.process(pad_manager.process(channels as usize), data);
                 },
                 |err| error!(%err, "Audio stream error occurred"),
                 None,
@@ -52,7 +59,20 @@ impl Engine {
             channel_rack: Slab::new(),
             channel_tx,
             pad_tx,
+            stream_config,
+            audios: Slab::new(),
         }
+    }
+
+    pub fn load_file(&mut self, file: &std::path::Path) -> usize {
+        let audio = decode_file(file).unwrap();
+        let resampled = audio.resample(self.stream_config.sample_rate);
+        self.audios.insert(Arc::new(resampled))
+    }
+
+    pub fn get_audio(&self, audio_id: usize) -> Arc<Audio> {
+        let audio = self.audios.get(audio_id).unwrap();
+        audio.clone()
     }
 
     #[instrument(skip(self))]

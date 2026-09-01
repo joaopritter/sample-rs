@@ -1,5 +1,4 @@
 use std::io;
-use std::sync::Arc;
 
 use cpal::traits::HostTrait;
 use crossterm::{
@@ -7,7 +6,6 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use sample_rs_engine::Engine;
-use sample_rs_sound::decode_file;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -23,9 +21,9 @@ pub fn main() -> io::Result<()> {
     let device = host.default_output_device().expect("No device");
     let mut engine = Engine::start(device);
 
-    let decoded_file = decode_file("assets/clap.wav").unwrap();
-    println!("Decoded file: {:?}", decoded_file);
-    let clap = Arc::new(decoded_file);
+    let file = std::path::Path::new("assets/clap.wav");
+    let audio_id = engine.load_file(file);
+    let clap = engine.get_audio(audio_id);
 
     let pad_id = engine.add_pad();
     let channel_id = engine.add_channel();

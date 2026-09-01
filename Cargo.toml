@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["engine", "sound", "tui"]
+members = ["engine", "tui"]
 
 [workspace.package]
 version = "0.0.1"
@@ -10,3 +10,5 @@ description = "Sample processing written in Rust"
 [workspace.dependencies]
 cpal = "0.18.2"
 tracing = "0.1.44"
+audioadapter = "5.0.0"
+audioadapter-buffers = "5.2.0"
