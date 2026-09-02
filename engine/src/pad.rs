@@ -1,13 +1,14 @@
 use audioadapter::{Adapter, AdapterMut};
 use audioadapter_buffers::direct::InterleavedSlice;
 use ringbuf::{
-    HeapCons, HeapProd, HeapRb, traits::{Consumer, Observer, Producer, Split},
+    HeapCons, HeapProd, HeapRb,
+    traits::{Consumer, Observer, Producer, Split},
 };
 use std::sync::Arc;
 use tracing::{debug, instrument, trace};
 use triple_buffer::{Input, Output, TripleBuffer};
 
-use crate::audio::Audio;
+use crate::{Context, audio::Audio};
 
 struct Voice {
     index: usize,
@@ -69,11 +70,9 @@ pub struct PadEngine {
     properties: Output<PadProperties>,
     voices: Vec<Voice>,
     producer: HeapProd<f32>,
-    mix_buffer: Vec<f32>,
 }
 
 impl PadEngine {
-    const MAX_CHUNK_SIZE: usize = 1024;
     const MAX_VOICES: usize = 32;
 
     pub fn new(id: usize) -> (Self, HeapCons<f32>, Input<PadProperties>) {
@@ -85,7 +84,6 @@ impl PadEngine {
                 properties: prop_r,
                 voices: Vec::with_capacity(Self::MAX_VOICES),
                 producer: pad_in,
-                mix_buffer: vec![0.0; Self::MAX_CHUNK_SIZE],
             },
             pad_out,
             prop_w,
@@ -115,7 +113,7 @@ impl PadEngine {
     }
 
     #[instrument(skip_all, fields(pad_id = self.id()))]
-    pub fn process(&mut self, channels: usize) -> bool {
+    pub fn process(&mut self, context: Context, buffer: &mut [f32]) -> bool {
         self.properties.update();
         let properties = self.properties.output_buffer();
 
@@ -135,36 +133,17 @@ impl PadEngine {
             }
         };
 
-        let available_samples = self.producer.vacant_len();
-        if available_samples < channels {
-            trace!("Producer has no vacant frames in buffer, exiting.");
-            return false;
-        }
+        let channels = context.channels() as usize;
+        let frames = buffer.len() / channels;
 
-        let available_frames = available_samples / channels;
-        let out_frames = available_frames.min(Self::MAX_CHUNK_SIZE);
-        let chunk_samples = out_frames * channels;
-
-        trace!(
-            "Rendering {} frames ({} samples).",
-            out_frames, chunk_samples
-        );
-
-        if self.mix_buffer.len() < chunk_samples {
-            self.mix_buffer.resize(chunk_samples, 0.0);
-        }
-
-        let buffer = &mut self.mix_buffer[..chunk_samples];
-        buffer.fill(0.0);
-
-        let mut dst_adapter = InterleavedSlice::new_mut(buffer, channels, out_frames).unwrap();
+        let mut dst_adapter = InterleavedSlice::new_mut(buffer, channels, frames).unwrap();
         let src_adapter = audio.as_adapter();
 
         let vol = properties.volume;
 
         for voice in &mut self.voices {
             let remain_frames = src_adapter.frames().saturating_sub(voice.index);
-            let process_frames = out_frames.min(remain_frames);
+            let process_frames = frames.min(remain_frames);
 
             for ch in 0..channels {
                 let src_ch = ch.min(src_adapter.channels() - 1);
@@ -198,25 +177,30 @@ pub enum PadManagerCommand {
 pub struct PadManager {
     pads: Vec<PadEngine>,
     cmd_rx: ringbuf::HeapCons<PadManagerCommand>,
+    context: Context,
+    prealloc_render_buffer: Vec<f32>,
 }
 
 impl PadManager {
-    pub fn new() -> (Self, ringbuf::HeapProd<PadManagerCommand>) {
+    pub fn new(context: Context) -> (Self, ringbuf::HeapProd<PadManagerCommand>) {
         let (cmd_tx, cmd_rx) = ringbuf::HeapRb::<PadManagerCommand>::new(25).split();
         (
             Self {
                 pads: Vec::new(),
                 cmd_rx,
+                context,
+                prealloc_render_buffer: vec![
+                    0.0;
+                    (context.buffer_size() as usize)
+                        * (context.channels() as usize)
+                        * 2
+                ],
             },
             cmd_tx,
         )
     }
 
-    /// Returns which pads are currently playing and where to route them to.
-    /// impl Iterator is favored as return instead of Vec so there's no memory
-    /// allocation during audio rendering, everything should be pre allocated
-    /// beforehand.
-    pub fn process(&mut self, channels: usize) -> impl Iterator<Item = (usize, usize)> {
+    fn run_cmd_queue(&mut self) {
         while let Some(cmd) = self.cmd_rx.try_pop() {
             match cmd {
                 PadManagerCommand::Hit(p_id) => {
@@ -233,9 +217,24 @@ impl PadManager {
                 }
             }
         }
+    }
+
+    /// Returns which pads are currently playing and where to route them to.
+    /// impl Iterator is favored as return instead of Vec so there's no memory
+    /// allocation during audio rendering, everything should be pre allocated
+    /// beforehand.
+    pub fn process(&mut self, buffer_size: usize) -> impl Iterator<Item = (usize, usize)> {
+        self.run_cmd_queue();
+
+        let buffer = &mut self.prealloc_render_buffer[..buffer_size];
 
         for p in &mut self.pads {
-            p.process(channels);
+            buffer.fill(0.0);
+
+            p.process(
+                self.context,
+                buffer,
+            );
             trace!(
                 "Pad '{}' has '{}' active voices.",
                 p.id(),

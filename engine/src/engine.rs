@@ -1,65 +1,37 @@
 use std::sync::Arc;
 
-use cpal::{
-    traits::{DeviceTrait, StreamTrait},
-};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use ringbuf::traits::Producer;
 use slab::Slab;
 use tracing::{debug, error, info, info_span, instrument, warn};
 
 use crate::{
+    Context,
     audio::{Audio, decode_file},
     channel::{Channel, ChannelProperties},
     pad::{PadEngine, PadManager, PadManagerCommand, PadProperties},
     router::{AudioRouter, AudioRouterCommand},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum BufferSize {
-    S128 = 128,
-    S256 = 256,
-    S512 = 512,
-    S1024 = 1024,
-    S2048 = 2048,
-    S4096 = 4096,
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum SampleRate {
-    R44_1kHz = 44_100,
-    R48kHz = 48_000,
-}
-
 pub struct EngineSettings {
     device: cpal::Device,
-    buffer_size: BufferSize,
-    sample_rate: SampleRate,
+    context: Context,
 }
 
 impl EngineSettings {
-    pub fn new(device: cpal::Device, buffer_size: BufferSize, sample_rate: SampleRate) -> Self {
-        Self { device, buffer_size, sample_rate }
-    }
-
-    pub fn buffer_size(&self) -> u32 {
-        self.buffer_size as u32
-    }
-
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate as u32
+    pub fn new(device: cpal::Device, context: Context) -> Self {
+        Self { device, context }
     }
 }
 
 pub struct Engine {
     _stream: cpal::Stream,
+    device: cpal::Device,
+    context: Context,
     pad_rack: Slab<(PadProperties, triple_buffer::Input<PadProperties>)>,
     channel_rack: Slab<triple_buffer::Input<ChannelProperties>>,
     channel_tx: ringbuf::HeapProd<AudioRouterCommand>,
     pad_tx: ringbuf::HeapProd<PadManagerCommand>,
-    settings: EngineSettings,
     audios: Slab<Arc<Audio>>,
 }
 
@@ -67,15 +39,12 @@ impl Engine {
     pub fn start(settings: EngineSettings) -> Self {
         let _span = info_span!("engine_start").entered();
 
-        info!("Starting engine");
-        let (mut audio_router, channel_tx) = AudioRouter::new();
-        let (mut pad_manager, pad_tx) = PadManager::new();
+        let context = settings.context;
+        let device = settings.device;
 
-        let device = settings.device.clone();
-        let desired_buffer_size = settings.buffer_size();
+        let desired_buffer_size = context.buffer_size();
         let supported_config = device.default_output_config().unwrap();
 
-        // TODO: Use this buffer size to determine memory prealloc in routers.
         match supported_config.buffer_size() {
             cpal::SupportedBufferSize::Range { min, max } => {
                 if *min > desired_buffer_size || *max < desired_buffer_size {
@@ -87,20 +56,22 @@ impl Engine {
 
         let mut stream_config = supported_config.config();
         stream_config.buffer_size = cpal::BufferSize::Fixed(desired_buffer_size);
-        stream_config.sample_rate = settings.sample_rate();
+        stream_config.sample_rate = context.sample_rate();
 
+        info!("Starting engine");
         info!(
-            sample_rate = settings.sample_rate(),
-            buffer_size = settings.buffer_size(),
+            sample_rate = stream_config.sample_rate,
+            buffer_size = ?stream_config.buffer_size,
             "Configured audio device"
         );
-        let channels = stream_config.channels;
+        let (mut audio_router, channel_tx) = AudioRouter::new(context);
+        let (mut pad_manager, pad_tx) = PadManager::new(context);
 
         let stream = device
             .build_output_stream(
                 stream_config,
                 move |data: &mut [f32], _| {
-                    audio_router.process(pad_manager.process(channels as usize), data);
+                    audio_router.process(pad_manager.process(data.len()), data);
                 },
                 |err| error!(%err, "Audio stream error occurred"),
                 None,
@@ -111,18 +82,19 @@ impl Engine {
 
         Self {
             _stream: stream,
+            device,
             pad_rack: Slab::new(),
             channel_rack: Slab::new(),
             channel_tx,
             pad_tx,
             audios: Slab::new(),
-            settings,
+            context,
         }
     }
 
     pub fn load_file(&mut self, file: &std::path::Path) -> usize {
         let audio = decode_file(file).unwrap();
-        let resampled = audio.resample(self.settings.sample_rate());
+        let resampled = audio.resample(self.context.sample_rate());
         self.audios.insert(Arc::new(resampled))
     }
 

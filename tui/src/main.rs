@@ -5,7 +5,7 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use sample_rs_engine::{BufferSize, Engine, EngineSettings, SampleRate};
+use sample_rs_engine::{BufferSize, Channels, Context, Engine, EngineSettings, SampleRate};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -20,7 +20,9 @@ pub fn main() -> io::Result<()> {
     let host = cpal::default_host();
     let device = host.default_output_device().expect("No device");
 
-    let settings = EngineSettings::new(device, BufferSize::S512, SampleRate::R44_1kHz);
+    let context = Context::new(SampleRate::R48kHz, BufferSize::S512, Channels::Stereo);
+
+    let settings = EngineSettings::new(device, context);
     let mut engine = Engine::start(settings);
 
     let clap_id = engine.load_file(std::path::Path::new("assets/clap.wav"));

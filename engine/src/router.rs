@@ -4,7 +4,7 @@ use ringbuf::{
 };
 use tracing::trace;
 
-use crate::channel::Channel;
+use crate::{Context, channel::Channel};
 
 pub enum AudioRouterCommand {
     ConnectPad((usize, HeapCons<f32>)),
@@ -22,37 +22,45 @@ pub struct AudioRouter {
     prealloc_mix_buffer: Vec<f32>,
     prealloc_active_routings: Vec<(usize, usize)>,
     cmd_rx: ringbuf::HeapCons<AudioRouterCommand>,
+    context: Context,
 }
 
 impl AudioRouter {
-    const MAX_CHUNK_SIZE: usize = 1024;
     const MAX_PADS: usize = 64;
-    pub fn new() -> (Self, ringbuf::HeapProd<AudioRouterCommand>) {
+    pub fn new(context: Context) -> (Self, ringbuf::HeapProd<AudioRouterCommand>) {
         let (cmd_tx, cmd_rx) = ringbuf::HeapRb::<AudioRouterCommand>::new(25).split();
         (
             Self {
                 pads: Vec::with_capacity(Self::MAX_PADS),
                 channels: Vec::with_capacity(16),
-                prealloc_mix_buffer: vec![0.0; Self::MAX_CHUNK_SIZE],
+                prealloc_mix_buffer: vec![
+                    0.0;
+                    (context.buffer_size() as usize)
+                        * (context.channels() as usize)
+                        * 2
+                ],
                 prealloc_active_routings: Vec::with_capacity(Self::MAX_PADS),
                 cmd_rx,
+                context,
             },
             cmd_tx,
         )
     }
 
-    fn execute_command(&mut self, cmd: AudioRouterCommand) {
-        match cmd {
-            AudioRouterCommand::ConnectPad(pad) => {
-                trace!("Connecting pad '{}' to audio router.", pad.0);
-                self.pads.push(pad);
+    fn run_cmd_queue(&mut self) {
+        while let Some(cmd) = self.cmd_rx.try_pop() {
+            match cmd {
+                AudioRouterCommand::ConnectPad(pad) => {
+                    trace!("Connecting pad '{}' to audio router.", pad.0);
+                    self.pads.push(pad);
+                }
+                AudioRouterCommand::AddChannel(channel) => {
+                    trace!("Pushing channel '{}' to vector...", channel.id());
+                    self.channels.push(channel);
+                }
+                AudioRouterCommand::DisconnectPad(pad_id) => todo!(),
+                AudioRouterCommand::RemoveChannel(channel_id) => todo!(),
             }
-            AudioRouterCommand::AddChannel(channel) => {
-                trace!("Pushing channel '{}' to vector...", channel.id());
-                self.channels.push(channel);
-            }
-            AudioRouterCommand::DisconnectPad(pad_id) => todo!(),
-            AudioRouterCommand::RemoveChannel(channel_id) => todo!(),
         }
     }
 
@@ -62,26 +70,22 @@ impl AudioRouter {
         active_pads: impl Iterator<Item = (usize, usize)>,
         output: &mut [f32],
     ) {
-        while let Some(cmd) = self.cmd_rx.try_pop() {
-            self.execute_command(cmd);
-        }
-
-        let frames = output.len();
-        if frames == 0 {
-            return;
-        }
+        self.run_cmd_queue();
 
         self.prealloc_active_routings.clear();
         for routing in active_pads {
-            if self.prealloc_active_routings.len() < self.prealloc_active_routings.capacity() {
-                self.prealloc_active_routings.push(routing);
-            }
+            self.prealloc_active_routings.push(routing);
         }
 
         output.fill(0.0);
+        let buffer_size = output.len();
 
-        let chunk_size = frames.min(Self::MAX_CHUNK_SIZE);
-        let mix_buffer = &mut self.prealloc_mix_buffer[..chunk_size];
+        assert!(
+            self.prealloc_mix_buffer.capacity() >= buffer_size,
+            "Audio buffer size exceeded pre-allocated capacity!"
+        );
+
+        let mix_buffer = &mut self.prealloc_mix_buffer[..buffer_size];
 
         for channel in self.channels.iter_mut() {
             let channel_id = channel.id();
@@ -98,7 +102,9 @@ impl AudioRouter {
 
             channel.process(inputs, mix_buffer);
 
-            for (out_sample, &channel_sample) in output.iter_mut().zip(mix_buffer.iter()) {
+            for (out_sample, &channel_sample) in
+                output.iter_mut().zip(mix_buffer.iter())
+            {
                 *out_sample += channel_sample;
             }
         }

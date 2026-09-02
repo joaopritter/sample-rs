@@ -25,7 +25,6 @@ impl Default for ChannelProperties {
 
 pub struct Channel {
     properties: Output<ChannelProperties>,
-    mix_buffer: Vec<f32>,
 }
 
 impl Channel {
@@ -33,7 +32,6 @@ impl Channel {
         let (prop_w, prop_r) = TripleBuffer::new(&ChannelProperties::new(id)).split();
         (
             Self {
-                mix_buffer: Vec::new(),
                 properties: prop_r,
             },
             prop_w,
@@ -49,26 +47,17 @@ impl Channel {
         inputs: impl Iterator<Item = &'a mut HeapCons<f32>>,
         buffer: &mut [f32],
     ) {
-        let frames = buffer.len();
-
-        if self.mix_buffer.len() < frames {
-            self.mix_buffer.resize(frames, 0.0);
-        }
-
-        self.mix_buffer[..frames].fill(0.0);
+        buffer.fill(0.0);
 
         for input in inputs {
-            for (mix_sample, in_sample) in
-                self.mix_buffer[..frames].iter_mut().zip(input.pop_iter())
-            {
-                *mix_sample += in_sample;
+            for (out_sample, in_sample) in buffer.iter_mut().zip(input.pop_iter()) {
+                *out_sample += in_sample;
             }
         }
 
         let volume = self.properties.output_buffer().volume;
-
-        for (out_sample, &mix_sample) in buffer.iter_mut().zip(self.mix_buffer[..frames].iter()) {
-            *out_sample = mix_sample * volume;
+        for out_sample in buffer.iter_mut() {
+            *out_sample *= volume;
         }
     }
 }
