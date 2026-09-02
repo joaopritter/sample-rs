@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use cpal::traits::{DeviceTrait, StreamTrait};
-use ringbuf::traits::Producer;
+use ringbuf::{
+    HeapProd, HeapRb, traits::{Consumer, Observer, Producer, Split},
+};
 use slab::Slab;
-use tracing::{debug, error, info, info_span, instrument, warn};
+use tracing::{debug, info, info_span, instrument, warn};
 
 use crate::{
     Context,
@@ -13,20 +14,61 @@ use crate::{
     router::{AudioRouter, AudioRouterCommand},
 };
 
-pub struct EngineSettings {
-    device: cpal::Device,
-    context: Context,
+pub struct OutputFeeder {
+    consumer: ringbuf::HeapCons<f32>,
 }
 
-impl EngineSettings {
-    pub fn new(device: cpal::Device, context: Context) -> Self {
-        Self { device, context }
+impl OutputFeeder {
+    pub(crate) fn new(consumer: ringbuf::HeapCons<f32>) -> Self {
+        Self { consumer }
+    }
+
+    pub fn feed(&mut self, buffer: &mut[f32]) {
+        buffer.fill(0.0);
+        self.consumer.pop_slice(buffer);
+    }
+}
+
+struct InnerEngine {
+    audio_router: AudioRouter,
+    pad_router: PadManager,
+    producer: HeapProd<f32>,
+    scratch_buffer: Vec<f32>,
+}
+
+impl InnerEngine {
+    fn new(
+        context: Context,
+        audio_router: AudioRouter,
+        pad_router: PadManager,
+    ) -> (Self, OutputFeeder) {
+        let (producer, audio_out) = HeapRb::<f32>::new(context.buffer_allocation_needed()).split();
+        (
+            Self {
+                audio_router,
+                pad_router,
+                producer,
+                scratch_buffer: vec![0.0; context.buffer_allocation_needed()],
+            },
+            OutputFeeder::new(audio_out),
+        )
+    }
+
+    fn inner_loop(&mut self) {
+        let vacant = self.producer.vacant_len();
+
+        if vacant == 0 {
+            return;
+        };
+
+        let buffer = &mut self.scratch_buffer[..vacant];
+        self.audio_router
+            .process(self.pad_router.process(buffer.len()), buffer);
+        self.producer.push_slice(buffer);
     }
 }
 
 pub struct Engine {
-    _stream: cpal::Stream,
-    device: cpal::Device,
     context: Context,
     pad_rack: Slab<(PadProperties, triple_buffer::Input<PadProperties>)>,
     channel_rack: Slab<triple_buffer::Input<ChannelProperties>>,
@@ -36,60 +78,38 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn start(settings: EngineSettings) -> Self {
+    // TODO: Engine return a Monitoring struct containing atomics displaying
+    // the current memory usage, frame rendering, etc.
+    pub fn start(context: Context) -> (Self, OutputFeeder) {
         let _span = info_span!("engine_start").entered();
-
-        let context = settings.context;
-        let device = settings.device;
-
-        let desired_buffer_size = context.buffer_size();
-        let supported_config = device.default_output_config().unwrap();
-
-        match supported_config.buffer_size() {
-            cpal::SupportedBufferSize::Range { min, max } => {
-                if *min > desired_buffer_size || *max < desired_buffer_size {
-                    panic!()
-                }
-            }
-            cpal::SupportedBufferSize::Unknown => todo!(),
-        }
-
-        let mut stream_config = supported_config.config();
-        stream_config.buffer_size = cpal::BufferSize::Fixed(desired_buffer_size);
-        stream_config.sample_rate = context.sample_rate();
-
         info!("Starting engine");
         info!(
-            sample_rate = stream_config.sample_rate,
-            buffer_size = ?stream_config.buffer_size,
+            sample_rate = context.sample_rate(),
+            buffer_size = context.buffer_size(),
             "Configured audio device"
         );
-        let (mut audio_router, channel_tx) = AudioRouter::new(context);
-        let (mut pad_manager, pad_tx) = PadManager::new(context);
+        let (audio_router, channel_tx) = AudioRouter::new(context);
+        let (pad_manager, pad_tx) = PadManager::new(context);
 
-        let stream = device
-            .build_output_stream(
-                stream_config,
-                move |data: &mut [f32], _| {
-                    audio_router.process(pad_manager.process(data.len()), data);
-                },
-                |err| error!(%err, "Audio stream error occurred"),
-                None,
-            )
-            .unwrap();
+        let (mut inner, audio_out) = InnerEngine::new(context, audio_router, pad_manager);
 
-        stream.play().unwrap();
+        std::thread::spawn(move || {
+            loop {
+                inner.inner_loop();
+            }
+        });
 
-        Self {
-            _stream: stream,
-            device,
-            pad_rack: Slab::new(),
-            channel_rack: Slab::new(),
-            channel_tx,
-            pad_tx,
-            audios: Slab::new(),
-            context,
-        }
+        (
+            Self {
+                pad_rack: Slab::new(),
+                channel_rack: Slab::new(),
+                channel_tx,
+                pad_tx,
+                audios: Slab::new(),
+                context,
+            },
+            audio_out,
+        )
     }
 
     pub fn load_file(&mut self, file: &std::path::Path) -> usize {

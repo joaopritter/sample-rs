@@ -16,7 +16,6 @@ pub enum SampleRate {
     R48kHz = 48_000,
 }
 
-
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 pub enum Channels {
@@ -33,7 +32,11 @@ pub struct Context {
 
 impl Context {
     pub fn new(sample_rate: SampleRate, buffer_size: BufferSize, channels: Channels) -> Self {
-        Self { sample_rate, buffer_size, channels }
+        Self {
+            sample_rate,
+            buffer_size,
+            channels,
+        }
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -46,5 +49,9 @@ impl Context {
 
     pub fn channels(&self) -> u32 {
         self.channels as u32
+    }
+
+    pub(crate) fn buffer_allocation_needed(&self) -> usize {
+        (self.buffer_size as usize) * (self.channels as usize)
     }
 }

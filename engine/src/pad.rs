@@ -2,7 +2,7 @@ use audioadapter::{Adapter, AdapterMut};
 use audioadapter_buffers::direct::InterleavedSlice;
 use ringbuf::{
     HeapCons, HeapProd, HeapRb,
-    traits::{Consumer, Observer, Producer, Split},
+    traits::{Consumer, Producer, Split},
 };
 use std::sync::Arc;
 use tracing::{debug, instrument, trace};
@@ -118,17 +118,14 @@ impl PadEngine {
         let properties = self.properties.output_buffer();
 
         if self.voices.is_empty() {
-            trace!("No voices to process...");
             return false;
         }
 
         let audio = match properties.p_audio.as_ref() {
             Some(a) => {
-                trace!("Has audio loaded...");
                 a
             }
             None => {
-                trace!("No audio loaded, exiting.");
                 return false;
             }
         };
@@ -235,20 +232,10 @@ impl PadManager {
                 self.context,
                 buffer,
             );
-            trace!(
-                "Pad '{}' has '{}' active voices.",
-                p.id(),
-                p.active_voices()
-            );
         }
 
         self.pads.iter().filter_map(|pad| {
             if pad.has_active_voices() {
-                trace!(
-                    "Routing pad '{}' to channel '{}'.",
-                    pad.id(),
-                    pad.target_channel()
-                );
                 Some((pad.id(), pad.target_channel()))
             } else {
                 None

@@ -33,12 +33,7 @@ impl AudioRouter {
             Self {
                 pads: Vec::with_capacity(Self::MAX_PADS),
                 channels: Vec::with_capacity(16),
-                prealloc_mix_buffer: vec![
-                    0.0;
-                    (context.buffer_size() as usize)
-                        * (context.channels() as usize)
-                        * 2
-                ],
+                prealloc_mix_buffer: vec![0.0; context.buffer_allocation_needed()],
                 prealloc_active_routings: Vec::with_capacity(Self::MAX_PADS),
                 cmd_rx,
                 context,
@@ -102,9 +97,7 @@ impl AudioRouter {
 
             channel.process(inputs, mix_buffer);
 
-            for (out_sample, &channel_sample) in
-                output.iter_mut().zip(mix_buffer.iter())
-            {
+            for (out_sample, &channel_sample) in output.iter_mut().zip(mix_buffer.iter()) {
                 *out_sample += channel_sample;
             }
         }
